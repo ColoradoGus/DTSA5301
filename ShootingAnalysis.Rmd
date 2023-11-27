@@ -1,0 +1,188 @@
+---
+title: "NYPD Shooting Analysis"
+date: "2023-10-15"
+output: html_document
+---
+
+```{r setup, include}
+knitr::opts_chunk$set(echo = TRUE)
+library(lubridate)
+library(ggplot2)
+library(dplyr)
+library(viridis)
+```
+
+## Overview
+
+This report is an analysis of the [NYPD shooting data set](https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic/resource/c564b578-fd8a-4005-8365-34150d306cc4).
+This data set a list of every shooting incident that occurred NYC from 2006 to 2022.
+
+I will:
+
+* Count the data rows, list the column headers, and discuss the data fields I will keep for analysis
+* Create a boxplot by month of shootings
+* Create a scatter plot of shootings by longitude and latitude
+* Evaluate per capita shootings
+* Discuss bias that could exist in the data set
+
+### Data Intake and Cleanup
+
+I will create a dataframe called **nypdShooting** using the provided link. 
+
+```{r NYPD Shooting Data}
+nypdShooting <- read.csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+
+```
+
+There are `r nrow(nypdShooting)` rows and `r ncol(nypdShooting)` columns. The column headers are:
+
+`r paste0("* ", names(nypdShooting), collapse = "\n")`
+
+#### Data Tiding
+
+I'm going to remove columns with limited or redundant data and keep only the columns listed in the code blocks below.
+
+```{r Cleaning NYPD Data Set}
+colsKeep <- c("OCCUR_DATE", "OCCUR_TIME", "BORO", "PRECINCT", "STATISTICAL_MURDER_FLAG", 
+                     "VIC_SEX", "VIC_RACE", "X_COORD_CD", "Y_COORD_CD")
+
+nypdShooting <- nypdShooting[, colsKeep]
+```
+
+I will use this smaller dataframe for my remaining analysis.
+Looking at this smaller dataframe, all columns have data (no null values).
+Therefore, I will consider this data set complete for my purposes.
+
+```{r Checking for Null Values}
+nullCounts <- colSums(is.na(nypdShooting))
+nullCounts
+```
+
+### Data Vizualization
+
+#### Month of Year Analysis
+
+I want to see how shootings change throughout the year, if at all. I will visualize this in two ways: 
+
+1) A heatmap of incidents by month and year.
+2) A boxplot of incidents by month
+
+To do this I will first need to summarize the data by month and year:
+
+```{r Summarizing Incident Data}
+nypdShooting$Year <- year(as.Date(nypdShooting$OCCUR_DATE, format="%m/%d/%Y"))
+nypdShooting$Month <- month(as.Date(nypdShooting$OCCUR_DATE, format="%m/%d/%Y"), label = TRUE)
+
+incidentCounts <- nypdShooting %>%
+  group_by(Year, Month) %>%
+  summarise(Incidents = n())
+```
+
+Based on the graphics below, there are more shootings in the summer months. 
+Additionally, shootings during the summer of 2020 were high compared to other years.
+
+```{r HeatMap of Shooting Incident Counts by Month and Year}
+ggplot(incidentCounts, aes(x = Month, y = as.factor(Year), fill = Incidents)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = viridis::viridis(8)) +
+  labs(x = "Month", y = "Year", fill = "Incident Count", title = "Heatmap of Incidents by Month and Year") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r Shooting Incident Month of Year Boxplot}
+ggplot(incidentCounts, aes(x = Month, y = Incidents)) +
+  geom_boxplot() +
+  labs(x = "Month", y = "Incident Count", title = "Distribution of Incidents by Month") +
+  theme_minimal()
+```
+
+```{r Shooting Incident Month by Time of Day Boxplot}
+#Trying something
+nypdShooting$Hour <- as.numeric(substr(nypdShooting$OCCUR_TIME, 1, 2))
+
+incidentHoursCounts <- nypdShooting %>%
+  group_by(Month,Hour) %>%
+  summarise(Incidents = n())
+
+# ggplot(incidentHoursCounts, aes(x = Month, y = as.factor(Hour), fill = Incidents)) +
+#   geom_tile() +
+#   scale_fill_gradientn(colors = viridis::viridis(8)) +
+#   labs(x = "Month", y = "Hour", fill = "Incident Count", title = "Heatmap of Incidents by Month and Year") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(incidentHoursCounts, aes(x = Hour, y = as.factor(Month), fill = Incidents)) +
+  geom_tile() +
+  scale_fill_gradientn(colors = viridis::viridis(8)) +
+  labs(x = "Hour of Day", y = "Month", 
+       fill = "Incident Count", 
+       title = "Heatmap of Incidents by Month and Hour",
+      ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# ggplot(nypdShooting, aes(x = Month, y = OCCUR_TIME)) +
+#   geom_point(alpha = 0.5, size = 0.7, color = "blue") +
+#   labs(x = "Month", y = "Occurrence Time", title = "Scatter Plot of Occurrence Time") +
+#   theme_minimal()
+
+head(nypdShooting)
+```
+
+
+#### Geospatial Analysis (Scatter Plot)
+
+I want to see where most shootings occur in NYC. I will simply create a scatter of longitude and latitude shooting events.
+From this analysis it looks like the Bronx and Brooklyn have the most number of shootings.
+
+```{r Shooting Incidents Longitude-Latitude Scatter Plot}
+
+ggplot(nypdShooting, aes(x = X_COORD_CD, y = Y_COORD_CD)) +
+  geom_point(alpha = 0.5, size = 0.7, color = "blue") +
+  labs(x = "Longitude", y = "Latitude", title = "Scatter Plot of Shooting Incidents in NYC") +
+  theme_minimal()
+
+```
+
+
+### Data Modeling
+
+#### Investigate Per Capita Shootings
+
+I'm going to see if how the per-capita shootings compare per borough. To do this I will get the populations per borough.
+I will use [wikipedia](https://en.wikipedia.org/wiki/Boroughs_of_New_York_City) for the population information. The Bronx has 36 shootings per 100,000 residents, double that of Manhattan which has a higher population. 
+
+
+```{r Per Capita Summary, echo}
+
+data2022 <- nypdShooting %>%
+  filter(Year == 2022)
+
+boroughPop <- data.frame(
+  BORO = c("BRONX", "BROOKLYN", "MANHATTAN", "QUEENS", "STATEN ISLAND"),
+  Population = c(1472654, 2736074, 1694251, 2405464, 495747)
+)
+
+boroughShootings <- aggregate(OCCUR_DATE ~ BORO, data = data2022, FUN = length)
+colnames(boroughShootings)[2] <- "Shootings"
+
+# Merge the two data frames by borough
+boroughPerCapita <- merge(boroughPop, boroughShootings, by = "BORO")
+
+# Calculate per capita shootings per 100,000 residents
+boroughPerCapita$PerCapitaShootings <- (boroughPerCapita$Shootings / boroughPerCapita$Population)*100000
+
+print(boroughPerCapita)
+```
+
+### Conclusion
+
+The raw data shows over 27000 shootings. It is possible that this data is biased. A few reasons are:
+
+* Shootings could be under-reported in some areas 
+* Higher police activity in some areas could skew reporting higher
+* Changing police activity over years could bias the data for specific years
+
+However, overall this data set is useful for giving an overview of crime activity in NYC and I imagine it is useful for policy makers and the police force.
+
